@@ -133,7 +133,7 @@ resource "aws_security_group" "terraform_alb_sg" {
 }
 
 resource "aws_s3_bucket" "aws_sBucket" {
-  bucket = "my-tf-test-bucket-tch"
+  bucket = var.my_bucket_name
 
   tags = {
     Name        = "My bucket"
@@ -167,7 +167,7 @@ resource "aws_s3_bucket_policy" "s3_bucket" {
 }
 
 resource "aws_s3_object" "object" {
-  bucket = "my-tf-test-bucket-tch"
+  bucket = var.my_bucket_name
   key    = "index.html"
   source = "./www/index.html"
 
@@ -176,4 +176,26 @@ resource "aws_s3_object" "object" {
   # etag = "${md5(file("path/to/file"))}"
   etag = filemd5("./www/index.html")
 }
+
+resource "aws_lb" "miniproject" {
+  name               = "miniproject-lb-tf"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.terraform_alb_sg.id]
+  subnets            = [aws_subnet.projectsubnet1.id, aws_subnet.projectsubnet2.id]
+
+  enable_deletion_protection = true
+
+  tags = {
+    Environment = "production"
+  }
+}
+
+# resource "aws_instance" "Ec2_project" {
+# ami           = "ami-0b5eea76982371e91"
+# instance_type = "t2.micro"
+# tags = {
+# Name = "Ec2-project"
+# }
+# }
 
