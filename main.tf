@@ -131,3 +131,49 @@ resource "aws_security_group" "terraform_alb_sg" {
     Name = "terraform_alb_sg"
   }
 }
+
+resource "aws_s3_bucket" "aws_sBucket" {
+  bucket = "my-tf-test-bucket-tch"
+
+  tags = {
+    Name        = "My bucket"
+    Environment = "Dev"
+  }
+}
+
+resource "aws_s3_bucket_acl" "example" {
+  bucket = aws_s3_bucket.aws_sBucket.id
+  acl    = "public-read"
+}
+
+resource "aws_s3_bucket_policy" "s3_bucket" {
+  bucket = aws_s3_bucket.aws_sBucket.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource = [
+          aws_s3_bucket.aws_sBucket.arn,
+          "${aws_s3_bucket.aws_sBucket.arn}/*",
+        ]
+      },
+    ]
+  })
+}
+
+resource "aws_s3_object" "object" {
+  bucket = "my-tf-test-bucket-tch"
+  key    = "index.html"
+  source = "./www/index.html"
+
+  # The filemd5() function is available in Terraform 0.11.12 and later
+  # For Terraform 0.11.11 and earlier, use the md5() function and the file() function:
+  # etag = "${md5(file("path/to/file"))}"
+  etag = filemd5("./www/index.html")
+}
+
