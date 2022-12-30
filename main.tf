@@ -191,11 +191,126 @@ resource "aws_lb" "miniproject" {
   }
 }
 
-# resource "aws_instance" "Ec2_project" {
-# ami           = "ami-0b5eea76982371e91"
-# instance_type = "t2.micro"
-# tags = {
-# Name = "Ec2-project"
-# }
-# }
+resource "aws_key_pair" "project_key" {
+  key_name = "mini_project_key_tf"
+  public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDLrQeHQhuP5F5o20buIU4BLibdOGd1LCIs/Me8Eb65ajWNVDW4QfgeKq+QiLMeevRTN2ycqUcXAiXS+TMMBjVjdw1oW4HqJmuXWte8xp/55TepiUikqRUrsKvjxGMBX3lro8Y9FgufJqZ5WbdHXgbSZZxQzu2Ywtq0/m8EcRf6fO7YCiEmUDWriRtE8Lug1U3fDqsSBwlJQIq0C/Ym+8g8Adv7ATltiJinFzKRtYObpDudVLe8OK9zn//FMZhYOlCox4DCQ9HCd91UV2SkK8TuErekYn6ifqddIWZalfB2r8XHCzke4uRI71LOUGMqlPZ65ajZ094KZ6btAytrunTx ec2-user@ip-172-31-84-37.ec2.internal"
+}
 
+
+resource "aws_instance" "Ec2_project" {
+  ami           = "ami-0b5eea76982371e91"
+  instance_type = "t2.micro"
+  key_name = aws_key_pair.project_key.id
+  subnet_id = aws_subnet.projectsubnet1.id
+  vpc_security_group_ids = [aws_security_group.terraform_sg.id]
+  associate_public_ip_address = true
+  user_data = <<EOF
+#!/bin/bash
+sudo -i
+yum update -y
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+aws s3 cp s3://project-demo-bucket-tch/default/flowershop_default_page.html /var/www/html/index.html --no-sign-request
+systemctl restart httpd
+EOF
+
+  tags = {
+    Name = "default-page"
+  }
+ }
+
+resource "aws_lb_target_group" "default-page-tg" {
+  name = "default-page-tg-terraform"
+  port = 80
+  protocol = "HTTP"
+  vpc_id = aws_vpc.project_vpc.id
+  #health_check = "/"
+}
+
+resource "aws_lb_target_group_attachment" "default-page-attachment" {
+  target_group_arn = aws_lb_target_group.default-page-tg.arn
+  target_id = aws_instance.Ec2_project.id
+  port = 80
+}
+
+resource "aws_lb_listener" "load-balancer-default" {
+  load_balancer_arn = aws_lb.miniproject.arn
+  port = 80
+  protocol = "HTTP"
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.default-page-tg.arn
+  }
+}
+
+resource "aws_launch_configuration" "flowers-lc" {
+  name = "flowers-launch-config"
+  image_id = "ami-0b5eea76982371e91"
+  instance_type = "t2.micro"
+  key_name = aws_key_pair.project_key.id
+  security_groups = [aws_security_group.terraform_sg.id]
+  associate_public_ip_address = true
+  user_data = <<EOF
+#!/bin/bash
+sudo -i
+yum update -y
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+mkdir /var/www/html/flowers/
+aws s3 cp s3://project-demo-bucket-tch/flowers/flowershop_flower-page.html /var/www/html/flowers/index.html --no-sign-request
+systemctl restart httpd
+EOF
+
+}
+
+#flowers-page target group
+resource "aws_lb_target_group" "flowers-page-tg" {
+  name = "flowers-page-tg-terraform"
+  port = 80
+  protocol = "HTTP"
+  vpc_id = aws_vpc.project_vpc.id
+  health_check {
+    path = "/flowers/"
+    port = 80
+    healthy_threshold = 6
+    unhealthy_threshold = 2
+    timeout = 2
+    interval = 5
+  }
+}
+
+#flowers-page autoscaling group
+resource "aws_autoscaling_group" "flowers-page-asg" {
+  name = "flowers-page-asg-terraform"
+  max_size = 3
+  min_size = 1
+  desired_capacity = 1
+  launch_configuration = aws_launch_configuration.flowers-lc.name
+  vpc_zone_identifier = [aws_subnet.projectsubnet1.id, aws_subnet.projectsubnet2.id]
+  #target_group_arns = aws_lb_target_group.flowers-page-tg.arn
+}
+
+
+# attach flowers-page autoscaling with target group
+resource "aws_autoscaling_attachment" "asg_attachment_bar" {
+  autoscaling_group_name = aws_autoscaling_group.flowers-page-asg.id
+  lb_target_group_arn    = aws_lb_target_group.flowers-page-tg.arn
+}
+
+# load balancer listener rule to forward flowers page traffic to flowers page
+resource "aws_lb_listener_rule" "flowers-page-rule" {
+  listener_arn = aws_lb_listener.load-balancer-default.arn
+  priority     = 100
+  action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.flowers-page-tg.arn
+  }
+
+  condition {
+    path_pattern {
+      values = ["*/flowers*"]
+    }
+  }
+}
